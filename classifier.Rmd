@@ -18,70 +18,103 @@ output:
 knitr::opts_chunk$set(message=FALSE,echo=TRUE,warning=FALSE,rows.print =8)
 
 # function
-source(paste0("E:\\OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd\\intervene1211\\new.project\\RF\\", "rfcv1.R"))
-source(paste0("E:\\OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd\\intervene1211\\new.project\\RF\\", "ROC.R"))
-source("E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention/Rscripts/SUMMARY_GITHUB_function.R")
+source(paste0("/home/RF/", "rfcv1.R"))
+source(paste0("/home/RF/", "ROC.R"))
+source("/home/GithubProbioticIntervention/Rscripts/SUMMARY_GITHUB_function.R")
+
 ##
-setwd("E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention/")
-indir <- "E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention/metadata/"
-outdir <- "E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention/result/classifier/"
+setwd("/home/GithubProbioticIntervention/")
+indir <- "/home/GithubProbioticIntervention/metadata/"
+outdir <- "/home/GithubProbioticIntervention/result/classifier/"
 prefix <- paste0(outdir,"intervene.train") 
 ```
 
 ```{r input data for model, include=FALSE}
-## 
-phen <- read.csv(paste0(indir,"/phenotype.1334.vision2.csv"),header = T)%>% subset(!is.na(group_new) )
-phen.va  <- subset(phen,Sites == "vagina")
+##
+phen <-
+  read.csv(paste0(indir, "/phenotype.1334.vision2.csv"), header = T) %>% subset(!is.na(group_new))
+phen.va  <- subset(phen, Sites == "vagina")
 ###
-species.pro.raw <- read.table(paste0(indir,"species.mp270.txt"),header = T)  
-if (!("tax" %in% colnames(species.pro.raw))){species.pro.raw$tax <- rownames(species.pro.raw)}
-rownames(species.pro.raw) <- species.pro.raw$tax ;
+species.pro.raw <-
+  read.table(paste0(indir, "species.mp270.txt"), header = T)
+if (!("tax" %in% colnames(species.pro.raw))) {
+  species.pro.raw$tax <- rownames(species.pro.raw)
+}
+rownames(species.pro.raw) <- species.pro.raw$tax
+
 ## species.pro filtered by 0.0001
-profile.va    <- dplyr :: select(species.pro.raw,as.vector(phen.va$SeqID)) /100
-profile.va.f  <- profile.va[apply(profile.va, 1, function(x){all(x<=0.0001)}),]
-profile.va    <- profile.va[setdiff(rownames(profile.va),rownames(profile.va.f)),]
-species.pro   <- profile.va/matrix(rep(colSums(profile.va),nrow(profile.va)),nrow(profile.va),byrow = T)
-species.pro$tax <- stringr::str_split_fixed(rownames(species.pro),"s__",2)[,2]
-rownames(species.pro) <- species.pro$tax ;
+profile.va    <-
+  dplyr::select(species.pro.raw, as.vector(phen.va$SeqID)) / 100
+profile.va.f  <-
+  profile.va[apply(profile.va, 1, function(x) {
+    all(x <= 0.0001)
+  }), ]
+profile.va    <-
+  profile.va[setdiff(rownames(profile.va), rownames(profile.va.f)), ]
+species.pro   <-
+  profile.va / matrix(rep(colSums(profile.va), nrow(profile.va)), nrow(profile.va), byrow = T)
+species.pro$tax <-
+  stringr::str_split_fixed(rownames(species.pro), "s__", 2)[, 2]
+rownames(species.pro) <- species.pro$tax
+
 ```
 
 ```{r bray}
 ## calculate dissimilarity
-bray.spe <- bray_stat(species.pro,phen,"bray")
+bray.spe <- bray_stat(species.pro, phen, "bray")
 ## select baseline(B0 B1 B2)
-bray.spe.B0 <- bray.spe %>% subset(group_new1 == "B0" & group_new2 %in% c("B1","B2"))
-subsID <- as.vector((data.frame(table(bray.spe.B0$SubjectID)) %>% subset(Freq==2))$Var1)  ## SUBJECT WITHIN TWO POINTS
+bray.spe.B0 <-
+  bray.spe %>% subset(group_new1 == "B0" &
+                        group_new2 %in% c("B1", "B2"))
+subsID <-
+  as.vector((data.frame(table(
+    bray.spe.B0$SubjectID
+  )) %>% subset(Freq == 2))$Var1)  ## SUBJECT WITHIN TWO POINTS
 bray.spe.B0 <- bray.spe.B0 %>% subset(SubjectID %in% subsID)
 ## calculate median value by group
-median.b0   <- aggregate(bray.spe.B0$value,by = list(bray.spe.B0$group_new2),median) 
+median.b0   <-
+  aggregate(bray.spe.B0$value, by = list(bray.spe.B0$group_new2), median)
 ## chose subjects who both lower than median
-median.sub   <- dcast(bray.spe.B0,SubjectID~group_new2,value.var = "value") %>% 
-  mutate(group.sub = ifelse(B2 < median.b0[median.b0$Group.1 == "B2",2] & B1< median.b0[median.b0$Group.1 == "B1",2],"low","high")) ### both lower the median
-addmargins(xtabs(~group.sub,median.sub))
+median.sub   <-
+  dcast(bray.spe.B0, SubjectID ~ group_new2, value.var = "value") %>%
+  mutate(group.sub = ifelse(B2 < median.b0[median.b0$Group.1 == "B2", 2] &
+                              B1 < median.b0[median.b0$Group.1 == "B1", 2], "low", "high")) ### both lower the median
+addmargins(xtabs( ~ group.sub, median.sub))
 ###
-bray.spe.B0$median.b0 <- median.b0$x[match(bray.spe.B0$group_new2,median.b0$Group.1)]
-bray.spe.B0$diff.median <- ifelse ((bray.spe.B0$value - bray.spe.B0$median.b0)>0,1,
-                                ifelse((bray.spe.B0$value - bray.spe.B0$median.b0)<0,-1,0))
-bray.spe.B0$group.sub <- median.sub$group.sub[match(bray.spe.B0$SubjectID,median.sub$SubjectID)]
-bray.spe.B0$group_new2 <- paste0(bray.spe.B0$group_new2,"_B0")
-### bray B0 
-ggplot(bray.spe.B0,aes(x = reorder(SubjectID,diff.median) , y = value)) + 
-  geom_point(aes(color =  group_new2)) + geom_line(aes(fill =  SubjectID))+
-  geom_hline(yintercept = median.b0$x,color = brewer.pal(3,"Pastel1")[1:2])+
-  labs(x= "SubjectID", y = "Bray-Curtis dissimilarity",color = "") +
-  theme_classic()+theme(axis.text.x = element_text(angle = 90,vjust = 0.5))
+bray.spe.B0$median.b0 <-
+  median.b0$x[match(bray.spe.B0$group_new2, median.b0$Group.1)]
+bray.spe.B0$diff.median <-
+  ifelse ((bray.spe.B0$value - bray.spe.B0$median.b0) > 0,
+          1,
+          ifelse((
+            bray.spe.B0$value - bray.spe.B0$median.b0
+          ) < 0, -1, 0))
+bray.spe.B0$group.sub <-
+  median.sub$group.sub[match(bray.spe.B0$SubjectID, median.sub$SubjectID)]
+bray.spe.B0$group_new2 <- paste0(bray.spe.B0$group_new2, "_B0")
+### bray B0
+ggplot(bray.spe.B0, aes(x = reorder(SubjectID, diff.median) , y = value)) +
+  geom_point(aes(color =  group_new2)) + geom_line(aes(fill =  SubjectID)) +
+  geom_hline(yintercept = median.b0$x, color = brewer.pal(3, "Pastel1")[1:2]) +
+  labs(x = "SubjectID", y = "Bray-Curtis dissimilarity", color = "") +
+  theme_classic() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 #ggsave("construct.group.sub.pdf" ,height = 6,width = 9)
-## 
+##
 bray.spe <- bray.spe %>%
-  subset(group_new1 == "B0" & group_new2 != "B0") %>% 
-  subset(SubjectID %in% as.vector(median.sub$SubjectID))%>%
-  mutate(group.sub = factor(median.sub$group.sub[match(SubjectID,median.sub$SubjectID)],levels = c( "high","low" )))
+  subset(group_new1 == "B0" & group_new2 != "B0") %>%
+  subset(SubjectID %in% as.vector(median.sub$SubjectID)) %>%
+  mutate(group.sub = factor(median.sub$group.sub[match(SubjectID, median.sub$SubjectID)], levels = c("high", "low")))
 
-ggplot(bray.spe,aes(x= group_new2,y= value)) + 
-  geom_boxplot(outlier.size = 0.5) + 
-  geom_point(aes(color = group.sub),position = position_jitterdodge(jitter.width = 0.5),alpha = 0.5,size = 0.5)+
-  scale_color_manual(values = brewer.pal(8,"Set1"))+
-  labs(x= "", y = "Bray-Curtis dissimilarity",color = "") +
+ggplot(bray.spe, aes(x = group_new2, y = value)) +
+  geom_boxplot(outlier.size = 0.5) +
+  geom_point(
+    aes(color = group.sub),
+    position = position_jitterdodge(jitter.width = 0.5),
+    alpha = 0.5,
+    size = 0.5
+  ) +
+  scale_color_manual(values = brewer.pal(8, "Set1")) +
+  labs(x = "", y = "Bray-Curtis dissimilarity", color = "") +
   theme_classic()
 #ggsave("bray.group.sub.pdf" ,height = 6,width = 9)
 ```
@@ -89,52 +122,71 @@ ggplot(bray.spe,aes(x= group_new2,y= value)) +
 # train set  
 
 ```{r train set}
-##  baseline data & phen.base  
-phen$group.sub <- factor(median.sub$group.sub[match(phen$SubjectID,median.sub$SubjectID)],levels = c( "low" ,"high"))
-phen.base <- subset(phen, Sites == "vagina" & groups == "Baseline" & SubjectID %in% subsID)
+##  baseline data & phen.base
+phen$group.sub <-
+  factor(median.sub$group.sub[match(phen$SubjectID, median.sub$SubjectID)], levels = c("low" , "high"))
+phen.base <-
+  subset(phen,
+         Sites == "vagina" & groups == "Baseline" & SubjectID %in% subsID)
 ##
-data.base <-  dplyr ::select(species.pro,as.vector(phen.base$SeqID)) %>% .[rowSums(.)!=0 ,]
-data.input <- data.frame(t(data.base)) %>% 
-  mutate(group = phen.base$group.sub[match(colnames(data.base),phen.base$SeqID)])
+data.base <-
+  dplyr::select(species.pro, as.vector(phen.base$SeqID)) %>% .[rowSums(.) !=
+                                                                 0 , ]
+data.input <- data.frame(t(data.base)) %>%
+  mutate(group = phen.base$group.sub[match(colnames(data.base), phen.base$SeqID)])
 rownames(data.input) <- colnames(data.base)
 ##
-knitr::kable(addmargins(xtabs(~group.sub,phen.base)) ,caption = "samples for model") 
+knitr::kable(addmargins(xtabs( ~ group.sub, phen.base)) , caption = "samples for model")
 
-## save  
-write.csv(median.sub,paste0(indir,"train.subject.csv" ),quote = F)
-write.csv(data.input,paste0(prefix,".data.input.csv" ),quote = F)
+## save
+write.csv(median.sub, paste0(indir, "train.subject.csv"), quote = F)
+write.csv(data.input, paste0(prefix, ".data.input.csv"), quote = F)
 ```
 
 # train model
 
 ```{r rf , echo=FALSE,fig.width=6,fig.height=6}
 ########
-train.x <- data.input   
-train.y <- data.input[,ncol(data.input)] 
+train.x <- data.input
+train.y <- data.input[, ncol(data.input)]
 
-cv.fold <- 5    
-cv.step <- 0.9  
-cv.time <- 5    
-marker.num <- 0 
+cv.fold <- 5
+cv.step <- 0.9
+cv.time <- 5
+marker.num <- 0
 ####
 # data reshape levels
-train.x <- train.x[,-ncol(train.x)]
+train.x <- train.x[, -ncol(train.x)]
 train.y <- as.factor(train.y)
 train.l <- levels(train.y)
 levels(train.y) <- 0:1
 
-## crossvalidation 
+## crossvalidation
 set.seed(123)
-train.cv <- replicate(cv.time, rfcv1(train.x, train.y, cv.fold = cv.fold, step = cv.step), simplify = F)
+train.cv <-
+  replicate(cv.time,
+            rfcv1(train.x, train.y, cv.fold = cv.fold, step = cv.step),
+            simplify = F)
 error.cv <- sapply(train.cv, "[[", "error.cv")
 error.cv.rm <- rowMeans(error.cv)
 id <- error.cv.rm < min(error.cv.rm) + sd(error.cv.rm)
 if (marker.num == 0) {
   marker.num <- min(as.numeric(names(error.cv.rm)[id]))
 }
-pdf(paste0(prefix,".rf_cverror.pdf" ),height = 6,width = 6)
-matplot(train.cv[[1]]$n.var, error.cv, type = "l", log = "x", col = rep(1, cv.time), main = paste("select", marker.num, "Vars"), xlab = "Number of vars", 
-        ylab = "CV Error", lty = 1)
+pdf(paste0(prefix, ".rf_cverror.pdf"),
+    height = 6,
+    width = 6)
+matplot(
+  train.cv[[1]]$n.var,
+  error.cv,
+  type = "l",
+  log = "x",
+  col = rep(1, cv.time),
+  main = paste("select", marker.num, "Vars"),
+  xlab = "Number of vars",
+  ylab = "CV Error",
+  lty = 1
+)
 lines(train.cv[[1]]$n.var, error.cv.rm, lwd = 2)
 abline(v = marker.num, col = "pink", lwd = 2)
 dev.off()
@@ -146,21 +198,37 @@ marker.t <- table(unlist(lapply(train.cv, function(x) {
 marker.t <- sort(marker.t, d = T)
 names(marker.t) <- colnames(train.x)[as.numeric(names(marker.t))]
 marker.dir <- paste0(prefix, "_marker.txt")
-write.table(marker.t, marker.dir, col.names = F, sep = "\t", quote = F)
+write.table(
+  marker.t,
+  marker.dir,
+  col.names = F,
+  sep = "\t",
+  quote = F
+)
 marker.p <- names(marker.t)[1:marker.num]
 
 ## train model
 #pdf(paste0(prefix,"_randomForest.pdf"), width = 16, height = 7)
 par(mfrow = c(1, 2))
 set.seed(123)
-train.rf <- randomForest(train.x[, marker.p], train.y, ntree=500,important=TRUE,proximity=TRUE)
+train.rf <-
+  randomForest(
+    train.x[, marker.p],
+    train.y,
+    ntree = 500,
+    important = TRUE,
+    proximity = TRUE
+  )
 train.p <- predict(train.rf, type = "prob")
 # train Probability
-boxplot(train.p[, 2] ~ train.y, col = 2:3, main = "Probability", names = train.l)
+boxplot(train.p[, 2] ~ train.y,
+        col = 2:3,
+        main = "Probability",
+        names = train.l)
 # train ROC
 plot_roc(train.y, train.p[, 2])
 # save
-save(train.rf,file = paste0(prefix,"_rf.RData"))  ##save the train set
+save(train.rf, file = paste0(prefix, "_rf.RData"))  ##save the train set
 #dev.off()
 
 print(train.rf)
@@ -170,13 +238,30 @@ print(train.rf)
 ## feature importance
 imp = as.data.frame(train.rf$importance)
 imp$names <- rownames(train.rf$importance)
-imp <- arrange(imp,-MeanDecreaseGini)[,c(2,1)] 
-kable(imp) %>% kable_styling(full_width = F, position = "left", font_size = 16)
-write.table(imp,file = paste0(prefix,".importance_class.txt"),quote = F,sep = '\t', row.names = F, col.names = T)
+imp <- arrange(imp, -MeanDecreaseGini)[, c(2, 1)]
+kable(imp) %>% kable_styling(full_width = F,
+                             position = "left",
+                             font_size = 16)
+write.table(
+  imp,
+  file = paste0(prefix, ".importance_class.txt"),
+  quote = F,
+  sep = '\t',
+  row.names = F,
+  col.names = T
+)
 ## save
 #pdf(paste0(prefix,".Feature Species importance.pdf" ),width = 18,height = 9)
 par(mfrow = c(1, 1))
-varImpPlot(train.rf, main = "Top - Feature Species importance",n.var = marker.num, bg = par("bg"),color = par("fg"), gcolor = par("fg"), lcolor = "gray" )
+varImpPlot(
+  train.rf,
+  main = "Top - Feature Species importance",
+  n.var = marker.num,
+  bg = par("bg"),
+  color = par("fg"),
+  gcolor = par("fg"),
+  lcolor = "gray"
+)
 #dev.off()
 ```
 
@@ -184,19 +269,31 @@ varImpPlot(train.rf, main = "Top - Feature Species importance",n.var = marker.nu
 # intervene all sample
 ```{r predict}
 #### pret all with filtered peofile ###
-phen.va.436 <- read.csv(paste0(indir,"/phenotype.1334.vision2.csv"),header = T)%>% 
-  subset(Sites == "vagina" )
+phen.va.436 <-
+  read.csv(paste0(indir, "/phenotype.1334.vision2.csv"), header = T) %>%
+  subset(Sites == "vagina")
 ###
-pret.profile <- data.frame(t(dplyr :: select(species.pro.raw,as.vector(phen.va.436$SeqID))/100) ) %>% .[,colSums(.)!=0]
-colnames(pret.profile) <- stringr::str_split_fixed(colnames(pret.profile),"s__",2)[,2]
+pret.profile <-
+  data.frame(t(dplyr::select(
+    species.pro.raw, as.vector(phen.va.436$SeqID)
+  ) / 100)) %>% .[, colSums(.) != 0]
+colnames(pret.profile) <-
+  stringr::str_split_fixed(colnames(pret.profile), "s__", 2)[, 2]
 ##
-pret.p <- predict(train.rf,pret.profile, type = "prob")
+pret.p <- predict(train.rf, pret.profile, type = "prob")
 #pr.dir <- paste0(prefix, "_pret_probability_all_436.txt")
 #write.table(pret.p[, 2], pr.dir, sep = "\t", quote = F, col.names = F)
 ###
-pret.res <- data.frame( prob = pret.p[, 2]) %>% rownames_to_column("SeqID")
-pret.res$group.pret <- ifelse(pret.res$prob >0.5 ,"high" ,"low")
-write.table(pret.res, paste0(prefix,"_pret_probability_all_436.group.txt"), sep = "\t", quote = F, col.names = T,row.names = F)
+pret.res <-
+  data.frame(prob = pret.p[, 2]) %>% rownames_to_column("SeqID")
+pret.res$group.pret <- ifelse(pret.res$prob > 0.5 , "high" , "low")
+write.table(
+  pret.res,
+  paste0(prefix, "_pret_probability_all_436.group.txt"),
+  sep = "\t",
+  quote = F,
+  col.names = T,
+  row.names = F
+)
 table(pret.res$group.pret)
 ```
-
