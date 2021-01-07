@@ -1,0 +1,109 @@
+---
+title: "Analysis04 function"
+author: "Haolilan"
+date: "2020/12/25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,echo=TRUE,warning=FALSE,rows.print =8)
+
+# set directory
+indir  <- "/home/GithubProbioticIntervention//metadata/"
+outdir <- "/home/GithubProbioticIntervention//result/" 
+
+# function
+source("/home/GithubProbioticIntervention/Rscripts/SUMMARY_GITHUB_function.R")
+
+```
+
+```{r input, include = FALSE}
+phen <-
+  read.csv(paste0(indir, "/phenotype.1334.vision2.csv"), header = T)
+phen$Sites     <-
+  factor(phen$Sites     , levels = c("tongue", "iw", "gut", "vagina"))
+phen$group_new <-
+  factor(phen$group_new,
+         levels = c("B2", "B1", "B0", "O1", "O2", "O3", "O4", "O5", "W1", "W2"))
+## add new phenotype ##
+median.sub <-
+  read.csv(paste0(outdir, "/classifier/train.subject.csv"), header = T)
+pret.sample <-
+  read.table(
+    paste0(
+      outdir,
+      "/classifier/intervene.train_pret_probability_all_436.group.txt"
+    ),
+    header = T
+  )
+CST <- read.table(paste0(outdir, "/CST.436.samples.txt"), header = T)
+phen <- phen %>%
+  mutate(
+    group.median = median.sub$group.sub[match(SubjectID, median.sub$SubjectID)],
+    group.pret   = pret.sample$group.pret[match(SeqID, pret.sample$SeqID)],
+    CST.sam      = CST$CST[match(SeqID, CST$SeqID)]
+  ) %>%
+  mutate(group.median = ifelse(is.na(group.median), "unclassified", as.vector(group.median)))
+```
+
+# DIFFERENCE FUNCTION FEATURE BETWEEN TIMEPOINTS(groups) 
+
+```{r diff from B0 }
+order1 <- c("B2_B1","B2_B0","B2_O1","B2_O2","B2_O3","B2_O4","B2_O5","B2_W1","B2_W2","B1_B0","B1_O1","B1_O2","B1_O3","B1_O4","B1_O5","B1_W1","B1_W2","B0_O1","B0_O2","B0_O3","B0_O4","B0_O5","B0_W1","B0_W2","O1_O2","O1_O3","O1_O4","O1_O5","O1_W1","O1_W2","O2_O3","O2_O4","O2_O5","O2_W1","O2_W2","O3_O4","O3_O5","O3_W1","O3_W2","O4_O5","O4_W1","O4_W2","O5_W1","O5_W2","W1_W2")
+
+
+## diff from B0
+prefix <- "wilcox_timepoint_unstra_B0"
+data <-
+  read.delim(paste0(outdir, "/wilcox1230/wilcox_timepoint.function.txt")) %>% mutate(Group = factor(Group, levels = order1)) %>% subset(str_detect(Group, "B0"))
+heatmap_function(data, prefix, 0.00000001)
+
+```
+
+```{r DIFF high_low }
+### DIFF high_low
+data <-
+  read.delim(paste0(outdir, "/wilcox1230/wilcox_Group.function_unstra.txt"))
+data$prevalence <-
+  (data$non0.length1 + data$non0.length2) / (data$length1 + data$length2)
+data <- data %>%
+  subset(Group == "high_low" & p.adjust < 0.05 & prevalence > 0.1)
+###
+profile    <-
+  read.delim(paste0(indir, "humann3_relab_unstra.txt")) %>% rownames_to_column("id")
+phen.input <-
+  phen %>% subset(SeqID %in% colnames(profile)) %>% select(SeqID, group.median) %>% subset(group.median != "unclassified")
+profile    <- profile    %>%
+  select(id, as.vector(phen.input$SeqID)) %>%
+  subset(id %in% as.vector(data$id))
+prof.m <-
+  melt(
+    profile,
+    id.vars = "id",
+    variable.name = "SeqID",
+    value.name = "rel_ab"
+  )  %>%
+  mutate(group = phen.input$group.median[match(SeqID, phen.input$SeqID)]) %>%  subset(!(str_detect("UNINTEGRATED", id)))
+data <-
+  data %>% subset(id %in% as.vector(prof.m$id)) %>% arrange(mean1)
+prof.m$id <- factor(prof.m$id, levels =  as.vector(data$id))
+prof.m$rel_ab[prof.m$rel_ab == 0] <- 0.0000001
+
+### point #
+data.draw <-
+  data %>% mutate(
+    Fold.change = log2(mean2 / mean1),
+    threshold = as.factor(ifelse(
+      p.adjust < 0.001, "q value < 0.001", "0.001< q value <0.005 "
+    )),
+    labs = ifelse(p.adjust < 0.001, as.vector(id), "")
+  )
+ggplot(data.draw,
+       aes(
+         x = Fold.change,
+         y = -log10(p.adjust),
+         label = labs,
+         color = threshold,
+       )) + geom_point() + geom_text_repel (size = 3) + labs(x = "log2(fold change)") + theme_test()
+
+```

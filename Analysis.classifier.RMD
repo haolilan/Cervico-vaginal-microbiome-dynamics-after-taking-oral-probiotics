@@ -1,0 +1,551 @@
+---
+title: "Analysis from D/Sgroup"
+author: "Haolilan"
+date: "2020/12/25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,echo=TRUE,warning=FALSE,rows.print =8)
+
+# set directory
+indir  <- "E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention//metadata/"
+outdir <- "E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention//result/" 
+
+# function
+source("E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention/Rscripts/SUMMARY_GITHUB_function.R")
+
+```
+
+```{r input, include = FALSE}
+phen <- read.csv(paste0(indir,"/phenotype.1334.vision2.csv"),header = T)
+phen$Sites     <- factor(phen$Sites     ,levels = c("tongue","iw","gut","vagina"))
+phen$group_new <- factor(phen$group_new,levels = c("B2","B1","B0","O1","O2","O3","O4","O5","W1","W2" ))
+## add new phenotype ##
+median.sub <-
+  read.csv(paste0(outdir,"/classifier/train.subject.csv"), header = T)
+pret.sample <-
+  read.table(
+    paste0(outdir,"/classifier/intervene.train_pret_probability_all_436.group.txt"),
+    header = T
+  )
+CST <- read.table(paste0(outdir,"/CST.436.samples.txt"),header = T) 
+phen <- phen %>%
+  mutate(group.median = median.sub$group.sub[match(SubjectID, median.sub$SubjectID)],
+         group.pret   = pret.sample$group.pret[match(SeqID, pret.sample$SeqID)],
+         CST.sam      = CST$CST[match(SeqID,CST$SeqID)]) %>%
+  mutate(group.median = ifelse(is.na(group.median), "unclassified", as.vector(group.median)))
+phen.va    <- phen %>% 
+  subset(Sites == "vagina") %>% subset(!is.na(group_new))
+
+### 01 species.pro
+species.pro <- read.table(paste0(indir,"species.mp270.txt"),header = T)  
+species.pro <- species.pro %>%  column_to_rownames("tax")  %>% 
+  dplyr::select(as.vector(phen$SeqID)) %>% .[rowSums(.) != 0 ,]
+
+### 02 genus.pro / lactobacillus .spp
+genus.pro <- read.table(paste0(indir,"genus.mp270.txt"),header = T)  
+genus.pro <- genus.pro %>%  column_to_rownames("tax")  %>% 
+  dplyr::select(as.vector(phen$SeqID)) %>% .[rowSums(.) != 0 ,] 
+
+###bray###
+bray.spe.all  <- bray_stat(species.pro,phen,"bray")
+bray.spe <- bray.spe.all %>% 
+  subset(group_new1 == "B0" & group_new2 != "B0") %>% 
+  mutate(group.median = phen$group.median[match(SubjectID,phen$SubjectID)],
+         group_new    = factor(paste0(phen$group_new[match(Var2,phen$SeqID)],"_B0"),
+                               levels = c( "B2_B0","B1_B0","B0_B0","O1_B0","O2_B0", "O3_B0", "O4_B0", "O5_B0",  "W1_B0", "W2_B0" )),
+         Sites        = factor(Sites , levels = c("tongue", "iw","gut", "vagina"))) %>%
+  dplyr::select(SubjectID,Sites,group.median,group_new,value)
+#write.csv(bray.spe,paste0(outdir,"bray.withB0.4sites.csv"),row.names = F,quote = F)
+
+###shannon###
+alpha.spe.all <- alpha_stat(species.pro) %>% merge(phen,all.y = T) %>% subset(alpha.diversity == "Shannon")
+alpha.spe <- alpha.spe.all %>% 
+  subset(!is.na(group_new) ) %>%
+  mutate(group_new    = factor(group_new,levels = c( "B2","B1","B0","O1","O2", "O3", "O4", "O5",  "W1", "W2" )),
+         Sites        = factor(Sites , levels = c("tongue", "iw","gut", "vagina"))) %>% 
+  dplyr::select(SeqID,SubjectID,Sites,group.median,group_new,alpha.value,group.pret,pH)
+#write.csv(alpha.spe,paste0(outdir,"shannon.4sites.csv"),row.names = F,quote = F)
+alpha.spe.va <- alpha.spe%>% subset(Sites == "vagina")
+```
+
+```{r PcoA}
+## FIG3h : PcoA ####
+profile.va <-
+  (species.pro[, as.vector(phen.va$SeqID)] / 100) %>% .[rowSums(.) != 0, ]
+phen.va.v2 <- phen %>% subset(Sites == "vagina")
+plot_pcoa_multi(profile.va,phen.va.v2$CST.sam,phen.va.v2$group.pret)
+```
+
+```{r FIG4}
+## FIG4 ####
+type.perc <- prop.table(xtabs( ~ SubjectID + group.pret, phen.va), 1)
+type.m <- data.frame(type.perc)
+###
+type.draw <-
+  dcast(type.m,
+        SubjectID ~ group.pret,
+        value.var = "Freq",
+        stringsAsFactors = F) %>% column_to_rownames("SubjectID")
+###
+mp_clust = stats::hclust(dist(type.draw), method = "ward.D2")
+label.x <-
+  c("S045",  "S019",  "S064",  "S063",  "S062",  "S055",  "S054",  "S049",  "S043",  "S041",  "S040",  "S034",  "S032",  "S026",  "S025",  "S024",  "S022",  "S020",  "S016",  "S014",  "S012",  "S008",  "S011",  "S030",  "S001",  "S018",  "S023",  
+    "S059",  "S056",  "S038",  "S037",  "S036",  "S033",  "S028",  "S027",  "S009",  "S004",  "S006",  "S015",  "S060",  "S039",  "S035",  "S002",  "S005",  "S010",  "S007",  
+    "S021",  "S051",  "S061",  "S071",  "S003",  "S046",  "S068",  "S065",  "S044",  "S031",  "S013",  "S017",  "S048",  "S053"  )
+#label.x = mp_clust$labels[mp_clust$order]
+##
+anno <-
+  cbind(type.draw, data.frame(cluster.median = hclust.clustering(dist(type.draw), k = 2)))
+anno$group.median <-
+  phen.va$group.median[match(rownames(anno), phen.va$SubjectID)]
+anno$SubjectID    <-
+  factor(phen.va$SubjectID[match(rownames(anno), phen.va$SubjectID)], levels = label.x)
+anno  <- arrange(anno, group.median, SubjectID)
+label.x <- as.vector(anno[, "SubjectID"])
+
+### group bar
+temp2 <- phen.va %>% mutate(x = rep("x", nrow(phen.va)))
+p.groupmedian <-
+  ggplot(temp2, aes(x = x, y = SubjectID, color = group.median)) +
+  geom_point(shape = 15, size = 10) +
+  scale_y_discrete(limits = label.x, guide_legend()) +
+  scale_color_manual(values = brewer.pal(9, "Set1") ,
+                     guide = guide_legend(ncol = 1, title = "")) +
+  labs(y = "", x = "") +
+  theme_test() + theme(
+    axis.text.x = element_text(
+      angle = 90,
+      vjust = 0.5,
+      hjust = 1,
+      size = 10
+    ),
+    text = element_text(size = 16),
+    axis.ticks = element_blank(),
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.border = element_blank()
+  )
+
+### group
+type.num <- matrix(xtabs( ~ SubjectID + group.pret, phen.va), ncol = 2)
+p.heat2 <- pheatmap(
+  type.draw[rev(label.x), ],
+  cluster_cols = F,
+  cluster_rows = F,
+  cellwidth = 15,
+  cellheight = 20,
+  display_numbers =  type.num[rev(match(label.x, levels(phen.va$SubjectID))), ],
+  show_rownames = T,
+  show_colnames = T,
+  color = colorRampPalette(colors = c(brewer.pal(9, "YlGnBu")[c(1, 3, 5, 8)], "brown1"))(100),
+  border_color = "white",
+  legend = FALSE
+)
+
+### group points
+p.point.pret <- ggplot(phen.va, aes(x = group_by_time, y = SubjectID)) +
+  geom_point(aes(color = group.pret, shape = groups), size = 6) +
+  scale_color_manual(values =  brewer.pal(9, "Set1"),
+                     guide = guide_legend(ncol = 1, title = "")) +
+  scale_x_continuous(
+    breaks = c(-33.98, -15, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100),
+    limits = c(-40, 110),
+    labels = c(
+      "-300",    "-45",   "0",    "7",   "14",  "30",    "60",   "90",   "120",    "150",   "180",    "210",   "240")
+  ) +
+  scale_y_discrete(limits = label.x) +
+  scale_shape_manual(values = c(0, 15, 23)) +
+  labs(y = "", x = "Sampling times (day)") +
+  theme_light() + theme(
+    axis.text.x = element_text(
+      angle = 90,
+      vjust = 0.5,
+      hjust = 1,
+      size = 10
+    ),
+    text = element_text(size = 16),
+    panel.grid.major.y  = element_line(size = 2, color = "grey"),
+    panel.grid.major.x  = element_blank()
+  )
+
+### bray of individuals
+bray.spe.va <- subset(bray.spe, Sites == "vagina")
+p.bray <-
+  ggplot(bray.spe.va, aes(x = SubjectID, y = value, color = group.median)) +
+  xlab("") + ylab("") + coord_flip() +
+  theme_bw() + theme(legend.title = element_blank()) +
+  geom_boxplot() +
+  geom_point(position = position_jitterdodge(),
+             pch = 1,
+             cex = 1) +
+  labs(x = "", y = "Bray-Curtis dissimilarity") +
+  scale_color_manual(values = brewer.pal(9, "Set1") ,
+                     guide = guide_legend(ncol = 1, title = "")) +
+  scale_x_discrete(limits = label.x)
+
+### shannon of individuals
+p.shannon <-
+  ggplot(alpha.spe.va,
+         aes(x = SubjectID, y = alpha.value, color = group.median)) + xlab("") +
+  ylab("") + coord_flip() +
+  theme_bw() + theme(legend.title = element_blank()) +
+  geom_boxplot() +
+  geom_point(position = position_jitterdodge(),
+             pch = 1,
+             cex = 1) +
+  ylab("Shannon index") +
+  scale_color_manual(values = brewer.pal(9, "Set1"),
+                     guide = guide_legend(ncol = 1, title = "")) +
+  scale_x_discrete(limits = label.x)
+
+## supplement
+pret.sample <- pret.sample %>%
+  mutate(
+    SubjectID = factor(phen$SubjectID[match(SeqID , phen$SeqID)], levels = rev(label.x)),
+    group_new = phen$group_new[match(SeqID , phen$SeqID)]
+  )
+draw.pret.sample <- pret.sample %>% subset(!(is.na(group_new)))
+####
+p.pret <- ggplot(draw.pret.sample, aes(x = group_new, y = prob, fill = prob)) +
+  geom_bar(stat = "identity",
+           position = "stack",
+           width = 0.5) +
+  scale_y_continuous(breaks = c(0, 1)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(x = "", y = "") +
+  facet_wrap(
+    SubjectID ~ .,
+    scales = "fixed",
+    ncol = 1,
+    strip.position = "right"
+  ) +
+  theme_classic() + theme(
+    axis.title.x = element_blank(),
+    axis.text    =  element_text(size = 5),
+    axis.text.x  =  element_text(size = 5, angle = 90, vjust = 0.5,
+                                 hjust = 1), 
+    axis.ticks = element_blank(),
+    strip.background = element_rect(color = "white"),
+    strip.text = element_text(size = 5)
+  )
+
+##
+ggarrange(
+  p.groupmedian,
+  p.heat2$gtable,
+  p.point.pret,
+  ggarrange(
+    p.bray,
+    p.shannon,
+    p.pret,
+    ncol = 3,
+    common.legend = T,
+    legend = FALSE
+  ),
+  widths = c(2, 1, 6, 6),
+  ncol = 5
+)
+#write.csv(data.frame(label.x),paste0(outdir,"sub.order.csv"),quote = F)
+```
+
+```{r FIG5 area plot}
+### FIG5 area plot####
+phen.va.u <- phen.va %>% subset(!is.na(group_new))
+order <-
+  phen.va.u %>% select(SeqID, SubjectID, group.median, group_new
+)%>% 
+  mutate(timepoints = factor(
+    group_new,
+    levels = c("B2", "B1", "B0", "O1", "O2", "O3", "O4", "O5", "W1", "W2")
+  ),
+  group      = factor(group.median , levels = c("high", "low"))) %>%
+  merge(data.frame(xtabs( ~ SubjectID, .))) %>% mutate(sub.lab = paste0(SubjectID, " (", Freq, ")")) %>%
+  arrange(SubjectID, timepoints)
+seq <- c()
+for (i in 1:length(levels(order$SubjectID))) {
+  j <- table(order$SubjectID)[i]
+  seq <- c(seq, seq(1, j))
+}
+order <- order %>% mutate(timepoint = seq,
+                          SubjectID = factor(order$SubjectID, levels = label.x)) %>%
+  arrange(group, SubjectID, timepoints) %>% ###reorder by the cluster
+  mutate(sub.lab = factor(sub.lab, levels = as.vector(sub.lab[!duplicated(SubjectID)])))
+###
+dat.draw <-
+  profile.va[order(apply(profile.va, 1, mean), decreasing = TRUE)[1:30], ]
+rownames(dat.draw) <-
+  str_split_fixed(rownames(dat.draw), "s__", 2)[, 2]
+temp <- data.frame(1 - colSums(dat.draw))
+dat.draw <- rbind(dat.draw, t(temp))
+rownames(dat.draw)[nrow(dat.draw)] <- "other"
+dat.draw$tax <- rownames(dat.draw)
+dat.m  <- melt(dat.draw, id.vars = "tax", variable.name = "SeqID")
+##
+dat.m <- merge(order, dat.m, all.x = T)
+tax.order <-
+  arrange(data.frame(aggregate(dat.m$value, by = list(dat.m$tax), mean)), -x)
+dat.m$tax <-
+  factor(dat.m$tax, levels = c(tax.order$Group.1[-which(tax.order$Group.1 == "other")], "other"))
+dat.m$group <- factor(dat.m$group , levels = c("low", "high"))
+dat.m$group.pret  <- phen$group.pret[match(dat.m$SeqID, phen$SeqID)]
+##
+ggplot(dat.m, aes(x = timepoint, y = value, fill = tax)) +
+  geom_area(position = "stack") +
+  geom_point(aes(x = timepoint, y = -0.05, color = group.pret), size =
+               1) +
+  scale_fill_manual(values = cbPalette, guide = guide_legend(ncol = 1)) +
+  scale_color_manual(values = brewer.pal(8, "Set1"), guide = guide_legend(ncol = 1)) +
+  facet_wrap( ~ sub.lab, scales = "free_x", ncol = 27) +
+  labs(fill = "Taxa", size = 10) + labs(x = "", y = "Relative Abundance") +
+  theme_light() + theme(
+    axis.ticks = element_blank(),
+    axis.text.x = element_blank(),
+    text = element_text(size = 18),
+    panel.grid = element_blank()
+  )
+
+```
+
+```{r SFIG5 diff sample}
+## SFIG5 diff from GROUP.pret #####
+## input data
+ggboxplot(
+  alpha.spe.va,
+  x = "group.pret",
+  y = "alpha.value",
+  color = "group.pret",
+  palette = "nejm",
+  add = "jitter",
+  xlab = "",
+  ylab = "Shannon index"
+) + stat_compare_means(method = "wilcox.test")
+
+## pH
+phen.ph.b <-
+  alpha.spe.va %>% subset(!is.na(pH))
+ggboxplot(
+  phen.ph.b,
+  x = "group.pret",
+  y = "pH",
+  color = "group.pret",
+  palette = "nejm",  
+  add = "jitter",
+  xlab = "",
+  ylab = "Vaginal pH"
+)+ stat_compare_means(method = "wilcox.test")
+
+## Lactobacillus spp.
+prefix <- "GENUS"
+LAC.spp  <- c("Lactobacillus")
+genus.pro$tax <- rownames(genus.pro)
+genus.melt <-
+  melt(
+    genus.pro %>% mutate(tax = stringr::str_split_fixed(genus.pro$tax, "g__", 2)[, 2]),
+    id.vars = "tax" ,
+    variable.name = "SeqID",
+    value.name = "Abundance"
+  ) %>%
+  merge(phen, by = "SeqID", all.y = T) %>%
+  mutate(Abundance = Abundance / 100,
+         log_abu = log10(Abundance / 100 + 0.0000001))  %>%
+  mutate(group_new    = factor(
+    group_new,
+    levels =  c("B2", "B1", "B0", "O1", "O2", "O3", "O4", "O5",  "W1", "W2")
+  ))
+genus.draw <- genus.melt %>%
+  subset(tax %in% LAC.spp &
+           !is.na(group_new) ) %>%
+  subset(Sites == "vagina" )
+####
+ggboxplot(
+  genus.draw,
+  x = "group.pret",
+  y = "Abundance",
+  color = "group.pret",
+  palette = "nejm",
+  add = "jitter",
+  xlab = "",
+  ylab = "Relative abundance of Lactobacillus spp."
+)+ stat_compare_means(method = "wilcox.test")
+
+```
+
+```{r SFIG5 SHIFTS}
+### SFIG5 SHIFTS ####
+phen.va$group_new <-
+  factor(phen.va$group_new,
+         levels = c("B2", "B1", "B0", "O1", "O2", "O3", "O4", "O5", "W1", "W2"))
+###
+phen.cst <-
+  dplyr::select(phen.va, SubjectID, group_new, group.pret) %>% arrange(SubjectID, group_new, group.pret)
+phen.cst.to <- rbind (phen.cst[-1, ], phen.cst[1, ])
+phen.cst.path <-
+  cbind(phen.cst, phen.cst.to)
+colnames(phen.cst.path) <-
+  c("SubjectID",
+    "group_new",
+    "group.pret",
+    "SubjectID2",
+    "group_new2",
+    "CST.NEW.sam2")
+phen.cst.path <- subset(phen.cst.path, SubjectID == SubjectID2) %>%
+  mutate(
+    shift.tim = paste(.$group_new, .$group_new2, sep = "_"),
+    shift.cst = paste(.$group.pret, .$CST.NEW.sam2, sep = "_"),
+    count = 1
+  )
+phen.cst.path <-
+  phen.cst.path %>% mutate(group.median = phen.va$group.median[match(SubjectID, phen.va$SubjectID)])
+
+### group ###
+phen.cst.path <-
+  phen.cst.path %>% subset(group.median %in% c("high", "low")) %>% subset(!(group_new %in% c("B2", "B1")))
+cst.path <-
+  aggregate(
+    x = phen.cst.path$count,
+    by = list(
+      phen.cst.path$shift.tim,
+      phen.cst.path$shift.cst,
+      phen.cst.path$group.median
+    ),
+    FUN = sum
+  ) %>%
+  mutate(
+    group1 = str_split_fixed(.$Group.1, "_", 2)[, 1],
+    group2 = str_split_fixed(.$Group.1, "_", 2)[, 2],
+    CST.NEW.sam1 = str_split_fixed(.$Group.2, "_", 2)[, 1],
+    CST.NEW.sam2 = str_split_fixed(.$Group.2, "_", 2)[, 2]
+  ) %>%
+  mutate(Group.3 = ifelse(Group.3 == "high", "Dysbiosis group", "Stable group"))
+cst.path[cst.path == "high"] <- "Dy_s"
+cst.path[cst.path == "low"]  <- "St_s"
+####
+ggplot(cst.path, aes(x = group1, y = CST.NEW.sam1)) +
+  geom_segment(
+    aes(
+      x = group1,
+      y = CST.NEW.sam1,
+      xend = group2,
+      yend = CST.NEW.sam2,
+      size = x
+    ),
+    color = "#FBB4AE",
+    show.legend = NA,
+    lineend = "round",
+    linejoin = "round"
+  ) +
+  scale_x_discrete(limits = c("B0", "O1", "O2", "O3", "O4", "O5", "W1", "W2")) +
+  scale_size(range = c(0, 3)) +
+  labs(title = "Shift") + xlab("") + ylab("Sample type") +
+  facet_wrap( ~ Group.3) +
+  theme_light() + theme(text = element_text(size = 15))
+```
+
+```{r SFIG4 SHANNON BRAY 4SITES}
+### SFIG4 SHANNON BRAY 4SITES####
+## shannon 4sites by 2groups
+alpha.spe.2group <-
+  alpha.spe %>% subset(group.median != "unclassified")
+ggplot(alpha.spe.2group,
+       aes(x = group_new, y = alpha.value)) +
+  geom_line(aes(group = SubjectID, color = group.median), alpha = 0.5) +
+  scale_color_manual(values = c(brewer.pal(9, "Set1")[1:6], brewer.pal(8, "Paired")[c(8, 7)])) +
+  geom_smooth(
+    aes(
+      group = group.median,
+      linetype = group.median, 
+      color = group.median
+    ),
+    method = "loess",
+    se = TRUE
+  ) +
+  labs(title = " ", y = " Shannon ") +
+  facet_grid(Sites ~ group.median, scales = "free") +
+  theme_classic2_v1 + theme(legend.position = "none")
+
+## bray 4sites by 2groups
+bray.spe.2group  <-
+  bray.spe %>% subset(group.median != "unclassified")
+ggplot(bray.spe.2group,
+       aes(x = group_new, y = value)) +
+  geom_line(aes(group = SubjectID, color = group.median), alpha = 0.5) +
+  scale_color_manual(values = c(brewer.pal(9, "Set1")[1:6], brewer.pal(8, "Paired")[c(8, 7)])) +
+  geom_smooth(
+    aes(
+      group = group.median,
+      linetype = group.median,
+      color = group.median
+    ),
+    method = "loess",
+    se = TRUE
+  ) +
+  labs(title = " ", y = " Bray-Curtis dissimilarity ") +
+  facet_grid(Sites ~ group.median, scales = "free") +
+  theme_classic2_v1 + theme(legend.position = "none")
+
+```
+
+```{r FIG 3de shannon & pH}
+##### FIG 3d\e shannon & pH ######
+## input data
+alpha.spe.va.2group <-
+  alpha.spe.va %>% subset(group.median != "unclassified" &
+                            !(group_new %in% c("W1", "W2")))
+ggline(
+  alpha.spe.va.2group,
+  x = "group_new",
+  y = "alpha.value",
+  add = "mean_se",
+  color = "group.median",
+  palette = "jco"
+)
+
+## pH
+phen.ph.2group <-
+  alpha.spe.va %>% subset(!is.na(pH)) %>% subset(group.median != "unclassified" &
+                                                   !(group_new %in% c("W1", "W2")))
+ggline(
+  phen.ph.2group,
+  x = "group_new",
+  y = "pH",
+  add = "mean_se",
+  color = "group.median",
+  palette = "jco"
+)
+
+##  FIG 3c. GENUS Lactobacillus.spp   #######
+prefix <- "GENUS"
+LAC.spp  <- c("Lactobacillus")
+genus.pro$tax <- rownames(genus.pro)
+genus.melt <-
+  melt(
+    genus.pro,
+    id.vars = "tax" ,
+    variable.name = "SeqID",
+    value.name = "Abundance"
+  ) %>%
+  merge(phen, by = "SeqID", all.y = T) %>%
+  mutate(Abundance = Abundance / 100,
+         log_abu = log10(Abundance / 100 + 0.0000001))  %>%
+  mutate(group_new    = factor(
+    group_new,
+    levels =  c("B2", "B1", "B0", "O1", "O2", "O3", "O4", "O5",  "W1", "W2")
+  ))
+genus.draw <- genus.melt %>%
+  subset(tax %in% LAC.spp &
+           !is.na(group_new) & group.median != "unclassified") %>%
+  subset(Sites == "vagina" & !(group_new %in% c("W1", "W2")))
+####
+ggline(
+  genus.draw,
+  x = "group_new",
+  y = "Abundance",
+  add = "mean_se",
+  color = "group.median",
+  palette = "jco",
+  facet.by = "Sites"
+)
+
+```
