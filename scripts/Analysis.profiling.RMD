@@ -1,0 +1,159 @@
+---
+title: "profiling"
+author: "Haolilan"
+date: "2020/12/25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,echo=TRUE,warning=FALSE,rows.print =8)
+setwd("E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention/Rscripts/rmd/")
+# set directory
+indir  <- "./metadata/"
+outdir <- "./result/" 
+
+# function
+source("./scripts/SUMMARY_GITHUB_function.R")
+
+```
+
+```{r input, include = FALSE}
+phen <- read.csv(paste0(indir,"/phenotype.vision2.csv"),header = T)
+phen$Sites     <- factor(phen$Sites     ,levels = c("Tongue.coat","Buccal.mucosa","Feces","Vagina"))
+phen$group_new <- factor(phen$group_new,levels = c("B2","B1","B0","O1","O2","O3","O4","O5","W1","W2" ))
+phen.va <- phen %>% subset(Sites == "Vagina")
+
+### 01 species.pro
+species.pro <- read.table(paste0(indir,"species.txt"),header = T) 
+species.pro <- species.pro %>%  column_to_rownames("tax")  %>% 
+  dplyr::select(as.vector(phen$SeqID)) %>% .[rowSums(.) != 0 ,]
+### 
+###bray###
+bray.spe.all  <- bray_stat(species.pro,phen,"bray")
+bray.spe <- bray.spe.all %>% 
+  subset(group_new1 == "B0" & group_new2 != "B0") %>% 
+  mutate(
+         group_new    = factor(paste0(phen$group_new[match(Var2,phen$SeqID)],"_B0"),
+                               levels = c( "B2_B0","B1_B0","B0_B0","O1_B0","O2_B0", "O3_B0", "O4_B0", "O5_B0",  "W1_B0", "W2_B0" )),
+         Sites        = factor(Sites , levels = c("Tongue.coat", "Buccal.mucosa","Feces", "Vagina"))) %>%
+  dplyr::select(SubjectID,Sites,group_new,value)
+ 
+###shannon###
+alpha.spe.all <- alpha_stat(species.pro) %>% merge(phen,all.y = T) %>% subset(alpha.diversity == "Shannon")
+alpha.spe <- alpha.spe.all %>% 
+  subset(!is.na(group_new) ) %>%
+  mutate(group_new    = factor(group_new,levels = c( "B2","B1","B0","O1","O2", "O3", "O4", "O5",  "W1", "W2" )),
+         Sites        = factor(Sites , levels = c("Tongue.coat", "Buccal.mucosa","Feces", "Vagina"))) %>% 
+  dplyr::select(SeqID,SubjectID,Sites,group_new,alpha.value,pH)
+alpha.spe.va <- alpha.spe%>% subset(Sites == "Vagina")
+```
+
+# SUMMARY
+
+```{r profiling & CST, message = FALSE, warning = FALSE}
+## profiling related to FIG 2####
+profile.va <-
+  (species.pro[, as.vector(phen.va$SeqID)] / 100) %>% .[rowSums(.) != 0, ]
+###
+data <- profile.va
+data.dist = dist.JSD(data)  ## using Jensen-Shannon divergence between all pairs of community states and Ward linkage hierarchical clustering (R vegan, ward.D2).
+##
+require(clusterSim)
+nclusters = NULL
+for (k in 1:10) {
+  if (k == 1) {
+    nclusters[k] = NA
+  } else {
+    data.cluster_temp = hclust.clustering(data.dist, k)
+    nclusters[k] = index.G1(t(data),
+                            data.cluster_temp,
+                            d = data.dist,
+                            centrotypes = "medoids")
+  }
+}
+plot(nclusters,
+     type = "h",
+     xlab = "k clusters",
+     ylab = "CH index")
+##
+which.model <- 6 ##which.max(nclusters)
+cluster = data.frame(CST = hclust.clustering(data.dist, k = which.model)) %>% mutate(SeqID = rownames(.)) %>% dplyr::select(SeqID, CST)
+phen.va.v1 = phen  %>% 
+  subset(Sites == "Vagina") %>%
+  mutate(pH = ifelse( pH %in% c( "5","5.1" ,"5.3" ,"5.5","5.8", "7"),"5.8",
+                     ifelse(pH %in% c("4.2","4.4","4.5" ,"4.7","4.8"),"4.8","4.0")) )
+phen.va.v1$pH[is.na(phen.va.v1$pH)] <- "NA"
+##
+clust_bar_plt(profile.va, data.dist,phen.va.v1,which.model, "stack")
+write.table(cluster,paste0(outdir,"CST.436.samples.txt"),row.names = F,quote = F)
+
+
+```
+
+```{r probiotics & shannon , message = FALSE, warning = FALSE}
+## probiotics related to SFIG3 ####
+species.pro$tax <- rownames(species.pro)
+species.melt <-
+  melt(
+    species.pro %>% mutate(tax = stringr::str_split_fixed(species.pro$tax, "s__", 2)[, 2]),
+    id.vars = "tax" ,
+    variable.name = "SeqID",
+    value.name = "Abundance"
+  ) %>%
+  merge(phen, by = "SeqID", all.y = T) %>%
+  mutate(Abundance = Abundance / 100,
+         log_abu = log10(Abundance / 100 + 0.0000001))  %>%
+  mutate(group_new    = factor(group_new,
+    levels =  c("B2", "B1", "B0", "O1", "O2", "O3", "O4", "O5",  "W1", "W2")
+  ),
+  Sites = factor(Sites , levels = c("Tongue.coat", "Buccal.mucosa", "Feces", "Vagina")))
+##
+LAC.spp  <- c("Lactobacillus_rhamnosus", "Lactobacillus_reuteri")
+species.draw <- species.melt %>%
+  subset(tax %in% LAC.spp & !is.na(group_new)) %>%
+  subset(!(group_new %in% c("W1", "W2")))
+####
+ggplot(species.draw,
+       aes(x = group_new, y = Abundance)) +
+  geom_boxplot(aes(group = group_new, color = group_new)) +
+  geom_beeswarm(aes(color = group_new)) +
+  labs(title = " " , x = "", y =  "") + guides(fill = FALSE) +
+  facet_grid(tax ~ Sites, scales = "fixed") +
+  theme_classic2_v1 + theme(legend.position = "none")
+
+## shannon 4sites
+alpha.spe.v1 <-
+  alpha.spe %>% subset(!(group_new %in% c("W1", "W2")))
+ggplot(alpha.spe.v1,
+       aes(x = group_new, y = alpha.value)) +
+  geom_boxplot(aes(group = group_new, color = group_new)) +
+  geom_beeswarm(aes(color = group_new)) +
+  labs(title = " " , x = "", y =  "Shannon") + guides(fill = FALSE) +
+  facet_wrap(~ Sites, scales = "fixed", ncol = 4) +
+  theme_classic2_v1 + theme(legend.position = "none")
+
+## bray 4sites
+bray.spe.v1  <-
+  bray.spe %>% subset(!(group_new %in% c("W1_B0", "W2_B0")))
+ggplot(bray.spe.v1,
+       aes(x = group_new, y = value)) +
+  geom_boxplot(aes(group = group_new, color = group_new)) +
+  geom_beeswarm(aes(color = group_new)) +
+  labs(title = " " , x = "", y =  "Bray-Curtis dissimilarity") + guides(fill = FALSE) +
+  facet_wrap(~ Sites, scales = "fixed", ncol = 4) +
+  theme_classic2_v1 + theme(legend.position = "none")
+
+## pH
+phen.ph.v1   <-
+  alpha.spe.va %>% subset(!is.na(pH)) %>% subset(!(group_new %in% c("W1", "W2")))
+ggline(
+  phen.ph.v1,
+  x = "group_new",
+  y = "pH",
+  add = c("mean_se"),
+  color = "Sites",
+  palette = "jco"
+) +
+  theme_classic2_v1 + theme(legend.position = "none")
+
+```
