@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(message=FALSE,echo=TRUE,warning=FALSE,rows.print =8)
-setwd("E:/OneDrive - BGI Tech Solutions (Hongkong) Co., Ltd/intervene1211/common/GithubProbioticIntervention/Rscripts/rmd/")
+
 # set directory
 indir  <- "./metadata/"
 outdir <- "./result/" 
